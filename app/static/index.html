@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>RateLoc AI Hotel Advisor</title>
+
+    <link
+        rel="stylesheet"
+        href="/static/styles.css"
+    >
+</head>
+
+
+<body>
+
+
+<div class="search-card">
+
+    <h2>Find Hotels</h2>
+
+
+    <div class="search-grid">
+
+        <div class="form-group destination-field">
+
+            <label>
+                Destination
+            </label>
+
+            <input
+                id="destinationInput"
+                type="text"
+                value="Dubai,Dubai,AE"
+                placeholder="Search destination"
+            >
+
+        </div>
+
+
+        <div class="form-group">
+
+            <label>
+                Check-in
+            </label>
+
+            <input
+                id="checkInInput"
+                type="date"
+                value="2027-01-01"
+            >
+
+        </div>
+
+
+        <div class="form-group">
+
+            <label>
+                Check-out
+            </label>
+
+            <input
+                id="checkOutInput"
+                type="date"
+                value="2027-01-05"
+            >
+
+        </div>
+
+
+        <div class="form-group">
+
+            <label>
+                Adults
+            </label>
+
+            <input
+                id="adultsInput"
+                type="number"
+                value="2"
+                min="1"
+            >
+
+        </div>
+
+
+        <div class="form-group">
+
+            <label>
+                Children
+            </label>
+
+            <input
+                id="childrenInput"
+                type="number"
+                value="0"
+                min="0"
+            >
+
+        </div>
+
+
+        <div id="childAgesContainer" class="child-ages-container"></div>
+
+
+        <div class="form-group">
+
+            <label>
+                Nationality
+            </label>
+
+            <input
+                id="nationalityInput"
+                type="text"
+                value="IN"
+            >
+
+        </div>
+
+    </div>
+
+
+    <button
+        id="searchHotelsButton"
+        class="primary-button search-button"
+        onclick="searchHotels()"
+    >
+        Search Hotels
+    </button>
+
+</div>
+
+
+
+<div class="selection-bar">
+
+    <span id="selectedCount">
+        Selected: 0 / 3
+    </span>
+
+
+    <button
+        id="compareButton"
+        class="compare-button"
+    >
+        Compare Selected Hotels
+    </button>
+
+</div>
+
+
+<div id="comparisonModal" class="comparison-modal hidden">
+    <div class="comparison-modal-card">
+        <div class="comparison-modal-header">
+            <div>
+                <h2>What matters most for this stay?</h2>
+                <p id="travellerSummary" class="modal-subtitle"></p>
+            </div>
+            <button id="closeComparisonModal" class="modal-close" type="button">×</button>
+        </div>
+
+        <div class="priority-grid">
+            <label><input type="checkbox" name="comparisonPriority" value="family"> Family suitability</label>
+            <label><input type="checkbox" name="comparisonPriority" value="location"> Best location</label>
+            <label><input type="checkbox" name="comparisonPriority" value="amenities"> Best amenities</label>
+            <label><input type="checkbox" name="comparisonPriority" value="kids_facilities"> Kids facilities</label>
+            <label><input type="checkbox" name="comparisonPriority" value="swimming_pool"> Swimming pool</label>
+            <label><input type="checkbox" name="comparisonPriority" value="beach"> Beach access</label>
+            <label><input type="checkbox" name="comparisonPriority" value="value_for_money"> Best value</label>
+            <label><input type="checkbox" name="comparisonPriority" value="board_basis"> Board basis</label>
+            <label><input type="checkbox" name="comparisonPriority" value="cancellation_flexibility"> Cancellation flexibility</label>
+            <label><input type="checkbox" name="comparisonPriority" value="airport_access"> Airport access</label>
+        </div>
+
+        <div class="modal-field">
+            <label for="pricePreference">How important is price?</label>
+            <select id="pricePreference">
+                <option value="best_value" selected>Best value overall</option>
+                <option value="cheapest_possible">Cheapest possible</option>
+                <option value="price_less_important">Price is less important</option>
+            </select>
+        </div>
+
+        <div class="modal-field">
+            <label for="customRequirement">Anything else important?</label>
+            <textarea id="customRequirement" rows="3" placeholder="Example: Good for one child, close to Haram, good pool, but not the most expensive option."></textarea>
+        </div>
+
+        <div class="modal-actions">
+            <button id="cancelComparisonButton" type="button" class="secondary-button">Cancel</button>
+            <button id="confirmComparisonButton" type="button" class="primary-button modal-compare-button">Compare Hotels</button>
+        </div>
+    </div>
+</div>
+
+
+<div
+    id="loading"
+    class="hidden"
+>
+    Comparing hotels...
+</div>
+
+
+
+<section
+    id="comparisonSection"
+    class="hidden"
+>
+
+    <h2>
+        AI Recommendation
+    </h2>
+
+
+    <div id="summary"></div>
+
+
+    <div id="hotelCards"></div>
+
+</section>
+
+
+
+<section
+    id="advisorSection"
+    class="hidden"
+>
+
+    <h2>
+        Ask the Hotel Advisor
+    </h2>
+
+
+    <div id="chatMessages"></div>
+
+
+    <div class="chat-input">
+
+        <input
+            id="questionInput"
+            type="text"
+            placeholder="Ask which hotel is better for kids, airport, location..."
+        >
+
+
+        <button id="sendButton">
+            Send
+        </button>
+
+    </div>
+
+</section>
+
+
+
+<div id="hotelResults"></div>
+
+
+
+<script src="/static/app.js"></script>
+
+
+</body>
+
+</html>

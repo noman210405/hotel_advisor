@@ -4,6 +4,9 @@ from app.services.session_service import (
     get_cached_research,
     save_cached_research,
 )
+from app.services.hotel_fact_service import (
+    build_compact_fact_context,
+)
 from langchain_core.prompts import ChatPromptTemplate
 from app.models.advisor import AdvisorRequest, AdvisorResponse
 from app.services.llm_service import model
@@ -144,9 +147,19 @@ Hotels:
 {hotels}
 Hotel recommended by the comparison:
 {recommended_hotel}
+Resolved target hotel for the current question:
+{target_hotel}
 
+IMPORTANT:
+Answer the CURRENT QUESTION only.
+Previous conversation is only context for understanding references such as
+"that hotel", "it", or "the one you recommended".
+Do not repeat the previous answer unless the current question asks for it.
 Question:
 {question}
+
+Structured verified hotel facts from the database:
+{structured_facts}
 
 Fresh verified research for this question:
 {research}
@@ -480,12 +493,51 @@ def compact_comparison_context(
 
     return compact_context
 
+def resolve_target_hotel(
+    request: AdvisorRequest,
+):
+    question = request.question.lower().strip()
+
+    # 1. Explicit hotel name in current question
+    for hotel in request.hotels:
+        if hotel.hotel_name.lower() in question:
+            return hotel
+
+    # 2. Look backwards through conversation history
+    for message in reversed(request.history):
+        text = message.content.lower()
+
+        for hotel in request.hotels:
+            if hotel.hotel_name.lower() in text:
+                return hotel
+
+    # 3. Recommended hotel only as final fallback
+    if request.recommended_hotel:
+        for hotel in request.hotels:
+            if (
+                hotel.hotel_name
+                == request.recommended_hotel
+            ):
+                return hotel
+
+    return None
+
 def answer_advisor_question(
     request: AdvisorRequest
 ) -> AdvisorResponse:
-
+    
     question_type = classify_advisor_question(
         request.question
+    )
+    target_hotel = resolve_target_hotel(
+        request
+    )
+
+    print(
+        "ADVISOR TARGET HOTEL:",
+        target_hotel.hotel_name
+        if target_hotel
+        else None,
     )
 
     # Load the saved comparison session
@@ -589,16 +641,10 @@ def answer_advisor_question(
             in request.question.lower()
         ]
 
-        if matched_hotels:
-            hotels_to_research = matched_hotels
-
-        elif request.recommended_hotel:
+        if target_hotel:
             hotels_to_research = [
-                hotel
-                for hotel in request.hotels
-                if hotel.hotel_name == request.recommended_hotel
+                target_hotel
             ]
-
         else:
             hotels_to_research = []
 
@@ -661,6 +707,53 @@ def answer_advisor_question(
         f"RECOMMENDED HOTEL RECEIVED: "
         f"{request.recommended_hotel}"
     )
+    print("\nADVISOR HOTEL CODES:")
+
+    for hotel in request.hotels:
+        print(
+            hotel.hotel_name,
+            "->",
+            hotel.hotel_code,
+        )
+    structured_fact_context = []
+
+    for hotel in request.hotels:
+
+        if (
+            hotel.hotel_name.lower()
+            in request.question.lower()
+        ):
+            structured_fact_context = (
+                build_compact_fact_context(
+                    hotel.hotel_code
+                )
+            )
+            break
+
+    if (
+        not structured_fact_context
+        and request.recommended_hotel
+    ):
+        recommended = next(
+            (
+                hotel
+                for hotel in request.hotels
+                if hotel.hotel_name
+                == request.recommended_hotel
+            ),
+            None,
+        )
+
+        if recommended:
+            structured_fact_context = (
+                build_compact_fact_context(
+                    recommended.hotel_code
+                )
+            )
+    print(
+        "\nADVISOR STRUCTURED FACTS:"
+    )
+    print(structured_fact_context)
 
     compact_research = compact_research_context(
         research_context
@@ -694,9 +787,18 @@ def answer_advisor_question(
         "child_ages": request.child_ages,
         "recommended_hotel": request.recommended_hotel,
         "hotels": hotels_json,
+        "target_hotel": (
+            target_hotel.hotel_name
+            if target_hotel
+            else None
+        ),
         "question": request.question,
         "history": history_json,
         "research": research_json,
+        "structured_facts": json.dumps(
+            structured_fact_context,
+            indent=2,
+        ),
         "comparison_context": comparison_context_json,
     })
 

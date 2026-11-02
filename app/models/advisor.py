@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class AdvisorHotelContext(BaseModel):
+    hotel_code: Optional[str] = None
     hotel_name: str
 
     address: Optional[str] = None

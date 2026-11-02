@@ -294,6 +294,7 @@ async function sendAdvisorQuestion() {
             session_id: comparisonSessionId,
             question: question,
             hotels: selectedHotels.map(hotel => ({
+                hotel_code: hotel.uniqueCode,
                 hotel_name: hotel.title,
                 address: hotel.address ?? null,
                 rating: hotel.rating ? Number(hotel.rating) : null,

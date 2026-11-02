@@ -95,6 +95,14 @@ RECOMMENDATION RULES:
   the traveller's decision.
 - Prefer meaningful differences between the selected hotels over generic
   amenities shared by both hotels.
+  RECOMMENDATION DIFFERENTIATION RULE:
+
+- Explain the recommendation using only actual differences between
+  the hotels.
+- Do not present a facility as an advantage over another hotel when
+  that other hotel has the same confirmed facility.
+- For example, if both hotels have a spa, the spa cannot be used as
+  the reason one hotel is better than the other.
 - Always distinguish the selected RateLoc offer from the hotel generally.
 - Say "the selected offer" when referring to board basis, refundability, room, price, or cancellation terms.
 - Never infer that another board basis, rate type, room type, or facility is unavailable just because it is not present in the selected offer.
@@ -117,6 +125,23 @@ PRICE SAFETY RULES:
 - Never contradict backend_price_facts.
 - If discussing value, distinguish factual price ranking from the
   subjective recommendation.
+
+COMPARISON WORDING RULES:
+
+- User priorities are preferences, not evidence about a hotel.
+- Never claim that a hotel has beach access, is beachfront, beach-side,
+  near a beach, or offers beach leisure merely because "beach" is one
+  of the user's priorities.
+- Only mention beach access or beachfront location when RateLoc data
+  or structured verified hotel facts explicitly confirm it.
+- If beach information is unknown, do not mention beach as a hotel
+  advantage or disadvantage.
+
+- Consider every hotel supplied in the comparison.
+- When more than two hotels are being compared, do not use phrases
+  such as "both hotels" when referring to the comparison as a whole.
+- Use wording such as "the other hotels", "the three hotels",
+  or name the relevant hotels explicitly.
 """
         ),
         (

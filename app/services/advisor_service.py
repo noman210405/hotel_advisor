@@ -7,6 +7,7 @@ from app.services.session_service import (
 from app.services.hotel_fact_service import (
     build_compact_fact_context,
 )
+from app.services.session_service import add_message
 from langchain_core.prompts import ChatPromptTemplate
 from app.models.advisor import AdvisorRequest, AdvisorResponse
 from app.services.llm_service import model
@@ -67,6 +68,14 @@ if that is one of the supplied hotels.
   "This amenity is not confirmed in the information I have."
 - Only say a hotel does NOT have a facility when the supplied evidence explicitly says it does not.
 - Do not invent or assume swimming pools, beaches, kids clubs, airport shuttles, restaurants, spas, or other facilities.
+BOOKING / ROOM SAFETY RULES:
+
+- Never say or imply that the traveller has booked a room unless booking confirmation data is explicitly provided.
+- Never say "you will be staying in", "your booked room", or similar wording based only on selected_offer or room_name.
+- A room_name in hotel context means only the room attached to the currently selected RateLoc offer.
+- When answering room-type questions, say:
+  "The currently selected offer is for [room_name]."
+- If room_name is unknown, say that the room type is not confirmed.
  RECOMMENDATION RULES:
 
 - When the user asks for the next best or second best option, consider their stated priorities from the conversation.
@@ -525,10 +534,11 @@ def resolve_target_hotel(
 def answer_advisor_question(
     request: AdvisorRequest
 ) -> AdvisorResponse:
-    
+
     question_type = classify_advisor_question(
         request.question
     )
+
     target_hotel = resolve_target_hotel(
         request
     )
@@ -540,91 +550,164 @@ def answer_advisor_question(
         else None,
     )
 
-    # Load the saved comparison session
+    # -------------------------------------------------
+    # LOAD SAVED COMPARISON SESSION
+    # -------------------------------------------------
+
     comparison_session = None
     comparison_context = None
     relevant_comparison_context = None
 
+    if request.session_id:
+
+        comparison_session = get_comparison_session(
+            request.session_id
+        )
+
+        if comparison_session:
+
+            comparison_context = (
+                comparison_session.get(
+                    "context"
+                )
+            )
+
+    # -------------------------------------------------
+    # SAVE CURRENT USER MESSAGE
+    # -------------------------------------------------
+
+    if request.session_id:
+
+        add_message(
+            request.session_id,
+            "user",
+            request.question,
+        )
+
+    # -------------------------------------------------
+    # BUILD RELEVANT COMPARISON CONTEXT
+    # -------------------------------------------------
+
     if comparison_context:
 
-        comparison_hotels = comparison_context.get(
-            "hotels",
-            []
+        comparison_hotels = (
+            comparison_context.get(
+                "hotels",
+                []
+            )
         )
 
-        target_hotel_name = (
-            request.recommended_hotel
-        )
+        target_hotel_name = None
 
-        for hotel in request.hotels:
-            if (
-                hotel.hotel_name.lower()
-                in request.question.lower()
-            ):
-                target_hotel_name = hotel.hotel_name
-                break
+        if target_hotel:
+            target_hotel_name = (
+                target_hotel.hotel_name
+            )
+
+        elif request.recommended_hotel:
+            target_hotel_name = (
+                request.recommended_hotel
+            )
 
         if target_hotel_name:
+
             relevant_hotel = next(
                 (
                     hotel
                     for hotel in comparison_hotels
-                    if hotel.get("hotel_name")
+                    if hotel.get(
+                        "hotel_name"
+                    )
                     == target_hotel_name
                 ),
                 None,
             )
 
             if relevant_hotel:
+
                 relevant_comparison_context = {
                     "destination":
                         comparison_context.get(
                             "destination"
                         ),
-                    "hotel": relevant_hotel,
+                    "hotel":
+                        relevant_hotel,
                 }
 
-    if request.session_id:
-        comparison_session = get_comparison_session(
-            request.session_id
+    compact_comparison = (
+        compact_comparison_context(
+            relevant_comparison_context
         )
-
-        if comparison_session:
-            comparison_context = comparison_session.get(
-                "context"
-            )
-
-    compact_comparison = compact_comparison_context(
-        relevant_comparison_context
     )
 
     comparison_context_json = json.dumps(
         compact_comparison,
         indent=2
     )
-    saved_evidence_available = has_saved_evidence_for_question(
-        comparison_context,
-        request,
+
+    # -------------------------------------------------
+    # CHECK EXISTING FACTS
+    # -------------------------------------------------
+
+    saved_evidence_available = (
+        has_saved_evidence_for_question(
+            comparison_context,
+            request,
+        )
     )
-    rateloc_fact_available = has_rateloc_fact_for_question(
-        request
+
+    rateloc_fact_available = (
+        has_rateloc_fact_for_question(
+            request
+        )
     )
 
     print(
         f"RATELOC FACT AVAILABLE: "
         f"{rateloc_fact_available}"
     )
+
     print(
         f"SAVED EVIDENCE AVAILABLE: "
         f"{saved_evidence_available}"
     )
+
     print(
-        f"SESSION ID RECEIVED: {request.session_id}"
-    ) 
+        f"SESSION ID RECEIVED: "
+        f"{request.session_id}"
+    )
+
+    # -------------------------------------------------
+    # STRUCTURED SUPABASE HOTEL FACTS
+    # -------------------------------------------------
+
+    structured_fact_context = []
+
+    if (
+        target_hotel
+        and target_hotel.hotel_code
+    ):
+
+        structured_fact_context = (
+            build_compact_fact_context(
+                target_hotel.hotel_code
+            )
+        )
+
+    print(
+        "\nADVISOR STRUCTURED FACTS:"
+    )
+
+    print(
+        structured_fact_context
+    )
+
+    # -------------------------------------------------
+    # FRESH WEB RESEARCH ONLY WHEN REQUIRED
+    # -------------------------------------------------
 
     research_context = []
 
-    # Fresh research only for questions that need external facts
     if (
         question_type in {
             "location",
@@ -634,18 +717,15 @@ def answer_advisor_question(
         and not rateloc_fact_available
         and not saved_evidence_available
     ):
-        matched_hotels = [
-            hotel
-            for hotel in request.hotels
-            if hotel.hotel_name.lower()
-            in request.question.lower()
-        ]
 
         if target_hotel:
+
             hotels_to_research = [
                 target_hotel
             ]
+
         else:
+
             hotels_to_research = []
 
         for hotel in hotels_to_research:
@@ -659,23 +739,38 @@ def answer_advisor_question(
             cached_research = None
 
             if request.session_id:
-                cached_research = get_cached_research(
-                    request.session_id,
-                    cache_key,
+
+                cached_research = (
+                    get_cached_research(
+                        request.session_id,
+                        cache_key,
+                    )
                 )
 
             if cached_research:
-                research_result = cached_research
+
+                research_result = (
+                    cached_research
+                )
 
             else:
-                research_result = research_hotel_question(
-                    hotel_name=hotel.hotel_name,
-                    destination=request.destination or "",
-                    address=hotel.address,
-                    question=request.question,
+
+                research_result = (
+                    research_hotel_question(
+                        hotel_name=
+                            hotel.hotel_name,
+                        destination=
+                            request.destination
+                            or "",
+                        address=
+                            hotel.address,
+                        question=
+                            request.question,
+                    )
                 )
 
                 if request.session_id:
+
                     save_cached_research(
                         request.session_id,
                         cache_key,
@@ -686,7 +781,10 @@ def answer_advisor_question(
                 research_result
             )
 
-    print("\nADVISOR RESEARCH CONTEXT:")
+    print(
+        "\nADVISOR RESEARCH CONTEXT:"
+    )
+
     print(
         json.dumps(
             research_context,
@@ -694,69 +792,44 @@ def answer_advisor_question(
         )
     )
 
-    print("\nCOMPARISON SESSION CONTEXT:")
+    print(
+        "\nCOMPARISON SESSION CONTEXT:"
+    )
+
     print(
         comparison_context_json
     )
 
     print(
-        f"ADVISOR QUESTION TYPE: {question_type}"
+        f"ADVISOR QUESTION TYPE: "
+        f"{question_type}"
     )
 
     print(
         f"RECOMMENDED HOTEL RECEIVED: "
         f"{request.recommended_hotel}"
     )
-    print("\nADVISOR HOTEL CODES:")
+
+    print(
+        "\nADVISOR HOTEL CODES:"
+    )
 
     for hotel in request.hotels:
+
         print(
             hotel.hotel_name,
             "->",
             hotel.hotel_code,
         )
-    structured_fact_context = []
 
-    for hotel in request.hotels:
+    # -------------------------------------------------
+    # COMPACT RESEARCH
+    # -------------------------------------------------
 
-        if (
-            hotel.hotel_name.lower()
-            in request.question.lower()
-        ):
-            structured_fact_context = (
-                build_compact_fact_context(
-                    hotel.hotel_code
-                )
-            )
-            break
-
-    if (
-        not structured_fact_context
-        and request.recommended_hotel
-    ):
-        recommended = next(
-            (
-                hotel
-                for hotel in request.hotels
-                if hotel.hotel_name
-                == request.recommended_hotel
-            ),
-            None,
+    compact_research = (
+        compact_research_context(
+            research_context
         )
-
-        if recommended:
-            structured_fact_context = (
-                build_compact_fact_context(
-                    recommended.hotel_code
-                )
-            )
-    print(
-        "\nADVISOR STRUCTURED FACTS:"
-    )
-    print(structured_fact_context)
-
-    compact_research = compact_research_context(
-        research_context
     )
 
     research_json = json.dumps(
@@ -764,63 +837,148 @@ def answer_advisor_question(
         indent=2
     )
 
+    # -------------------------------------------------
+    # HOTEL CONTEXT
+    # -------------------------------------------------
+
     hotels_json = json.dumps(
         [
             hotel.model_dump()
-            for hotel in request.hotels
+            for hotel
+            in request.hotels
         ],
         indent=2
     )
+
+    # -------------------------------------------------
+    # CONVERSATION HISTORY
+    # -------------------------------------------------
 
     history_json = json.dumps(
         [
             message.model_dump()
-            for message in request.history
+            for message
+            in request.history
         ],
         indent=2
     )
 
+    # -------------------------------------------------
+    # ASK GROQ
+    # -------------------------------------------------
+
     response = advisor_chain.invoke({
-        "destination": request.destination,
-        "adults": request.adults,
-        "children": request.children,
-        "child_ages": request.child_ages,
-        "recommended_hotel": request.recommended_hotel,
-        "hotels": hotels_json,
+        "destination":
+            request.destination,
+
+        "adults":
+            request.adults,
+
+        "children":
+            request.children,
+
+        "child_ages":
+            request.child_ages,
+
+        "recommended_hotel":
+            request.recommended_hotel,
+
+        "hotels":
+            hotels_json,
+
         "target_hotel": (
             target_hotel.hotel_name
             if target_hotel
             else None
         ),
-        "question": request.question,
-        "history": history_json,
-        "research": research_json,
-        "structured_facts": json.dumps(
-            structured_fact_context,
-            indent=2,
-        ),
-        "comparison_context": comparison_context_json,
+
+        "question":
+            request.question,
+
+        "history":
+            history_json,
+
+        "research":
+            research_json,
+
+        "structured_facts":
+            json.dumps(
+                structured_fact_context,
+                indent=2,
+            ),
+
+        "comparison_context":
+            comparison_context_json,
     })
 
-    raw_text = response.content.strip()
+    # -------------------------------------------------
+    # VALIDATE GROQ RESPONSE
+    # -------------------------------------------------
+
+    raw_text = (
+        response.content.strip()
+    )
 
     if not raw_text:
+
         raise ValueError(
-            "Groq returned an empty advisor response"
+            "Groq returned an empty "
+            "advisor response"
         )
 
-    if raw_text.startswith("```json"):
+    if raw_text.startswith(
+        "```json"
+    ):
+
         raw_text = raw_text[7:]
-    elif raw_text.startswith("```"):
+
+    elif raw_text.startswith(
+        "```"
+    ):
+
         raw_text = raw_text[3:]
 
-    if raw_text.endswith("```"):
+    if raw_text.endswith(
+        "```"
+    ):
+
         raw_text = raw_text[:-3]
 
     parsed = json.loads(
         raw_text.strip()
     )
 
-    return AdvisorResponse.model_validate(
-        parsed
+    advisor_response = (
+        AdvisorResponse.model_validate(
+            parsed
+        )
     )
+
+    # -------------------------------------------------
+    # SAVE ASSISTANT MESSAGE TO SUPABASE
+    # -------------------------------------------------
+
+    if request.session_id:
+
+        assistant_answer = (
+            parsed.get(
+                "answer"
+            )
+        )
+
+        if isinstance(
+            assistant_answer,
+            str
+        ):
+
+            add_message(
+                request.session_id,
+                "assistant",
+                assistant_answer,
+            )
+
+    # -------------------------------------------------
+    # RETURN RESPONSE
+    # -------------------------------------------------
+
+    return advisor_response

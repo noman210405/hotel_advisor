@@ -1,53 +1,111 @@
+from datetime import datetime, timezone
 import uuid
+from app.services.research_cache_service import supabase
 
 
-comparison_sessions = {}
-
-
-def create_comparison_session(context: dict) -> str:
-
+def create_comparison_session(
+    context: dict,
+):
     session_id = str(uuid.uuid4())
 
-    comparison_sessions[session_id] = {
+    now = datetime.now(
+        timezone.utc
+    ).isoformat()
+
+    payload = {
+        "session_id": session_id,
         "context": context,
         "history": [],
-        "research_cache": {}
+        "research_cache": {},
+        "created_at": now,
+        "updated_at": now,
     }
+
+    supabase.table(
+        "comparison_sessions"
+    ).insert(
+        payload
+    ).execute()
 
     return session_id
 
 
-def get_comparison_session(session_id: str):
+def get_comparison_session(
+    session_id: str,
+):
+    result = (
+        supabase.table(
+            "comparison_sessions"
+        )
+        .select("*")
+        .eq(
+            "session_id",
+            session_id,
+        )
+        .limit(1)
+        .execute()
+    )
 
-    return comparison_sessions.get(session_id)
+    if not result.data:
+        return None
+
+    return result.data[0]
 
 
 def add_message(
     session_id: str,
     role: str,
-    content: str
+    content: str,
 ):
+    session = get_comparison_session(
+        session_id
+    )
 
-    session = comparison_sessions.get(session_id)
-
-    if session is None:
+    if not session:
         return
 
-    session["history"].append({
-        "role": role,
-        "content": content
-    })
+    history = session.get(
+        "history"
+    ) or []
+
+    history.append(
+        {
+            "role": role,
+            "content": content,
+        }
+    )
+
+    supabase.table(
+        "comparison_sessions"
+    ).update(
+        {
+            "history": history,
+            "updated_at": datetime.now(
+                timezone.utc
+            ).isoformat(),
+        }
+    ).eq(
+        "session_id",
+        session_id,
+    ).execute()
+
 
 def get_cached_research(
     session_id: str,
     cache_key: str,
 ):
-    session = comparison_sessions.get(session_id)
+    session = get_comparison_session(
+        session_id
+    )
 
-    if session is None:
+    if not session:
         return None
 
-    return session["research_cache"].get(
+    research_cache = session.get(
+        "research_cache"
+    ) or {}
+
+    return research_cache.get(
         cache_key
     )
 
@@ -55,11 +113,33 @@ def get_cached_research(
 def save_cached_research(
     session_id: str,
     cache_key: str,
-    research: dict,
+    research,
 ):
-    session = comparison_sessions.get(session_id)
+    session = get_comparison_session(
+        session_id
+    )
 
-    if session is None:
+    if not session:
         return
 
-    session["research_cache"][cache_key] = research
+    research_cache = session.get(
+        "research_cache"
+    ) or {}
+
+    research_cache[
+        cache_key
+    ] = research
+
+    supabase.table(
+        "comparison_sessions"
+    ).update(
+        {
+            "research_cache": research_cache,
+            "updated_at": datetime.now(
+                timezone.utc
+            ).isoformat(),
+        }
+    ).eq(
+        "session_id",
+        session_id,
+    ).execute()
